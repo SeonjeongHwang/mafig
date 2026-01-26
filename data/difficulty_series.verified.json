@@ -1,0 +1,234 @@
+{
+   "1": {
+      "passage": {
+         "passage_length": "short",
+         "sentence_length": "short",
+         "vocab_level": "A"
+      },
+      "option": [
+         {
+            "factuality": "True",
+            "evidence_scope": "Single",
+            "transformation_level": "Word Matching"
+         },
+         {
+            "factuality": "False",
+            "evidence_scope": "Single",
+            "transformation_level": "Word Matching"
+         },
+         {
+            "factuality": "False",
+            "evidence_scope": "Single",
+            "transformation_level": "Word Matching"
+         },
+         {
+            "factuality": "False",
+            "evidence_scope": "Single",
+            "transformation_level": "Word Matching"
+         }
+      ]
+   },
+   "2": {
+      "passage": {
+         "passage_length": "short",
+         "sentence_length": "short",
+         "vocab_level": "A"
+      },
+      "option": [
+         {
+            "factuality": "True",
+            "evidence_scope": "Single",
+            "transformation_level": "Paraphrasing"
+         },
+         {
+            "factuality": "False",
+            "evidence_scope": "Single",
+            "transformation_level": "Paraphrasing"
+         },
+         {
+            "factuality": "False",
+            "evidence_scope": "Single",
+            "transformation_level": "Word Matching"
+         },
+         {
+            "factuality": "False",
+            "evidence_scope": "Single",
+            "transformation_level": "Word Matching"
+         }
+      ]
+   },
+   "3": {
+      "passage": {
+         "passage_length": "medium",
+         "sentence_length": "short",
+         "vocab_level": "A"
+      },
+      "option": [
+         {
+            "factuality": "True",
+            "evidence_scope": "Single",
+            "transformation_level": "Paraphrasing"
+         },
+         {
+            "factuality": "False",
+            "evidence_scope": "Single",
+            "transformation_level": "Paraphrasing"
+         },
+         {
+            "factuality": "False",
+            "evidence_scope": "Single",
+            "transformation_level": "Word Matching"
+         },
+         {
+            "factuality": "False",
+            "evidence_scope": "Single",
+            "transformation_level": "Word Matching"
+         }
+      ]
+   },
+   "4": {
+      "passage": {
+         "passage_length": "medium",
+         "sentence_length": "medium",
+         "vocab_level": "B"
+      },
+      "option": [
+         {
+            "factuality": "True",
+            "evidence_scope": "Single",
+            "transformation_level": "Paraphrasing"
+         },
+         {
+            "factuality": "False",
+            "evidence_scope": "Single",
+            "transformation_level": "Paraphrasing"
+         },
+         {
+            "factuality": "False",
+            "evidence_scope": "Single",
+            "transformation_level": "Paraphrasing"
+         },
+         {
+            "factuality": "False",
+            "evidence_scope": "Single",
+            "transformation_level": "Paraphrasing"
+         }
+      ]
+   },
+   "5": {
+      "passage": {
+         "passage_length": "medium",
+         "sentence_length": "medium",
+         "vocab_level": "B"
+      },
+      "option": [
+         {
+            "factuality": "True",
+            "evidence_scope": "Single",
+            "transformation_level": "Inference"
+         },
+         {
+            "factuality": "False",
+            "evidence_scope": "Single",
+            "transformation_level": "Inference"
+         },
+         {
+            "factuality": "False",
+            "evidence_scope": "Single",
+            "transformation_level": "Paraphrasing"
+         },
+         {
+            "factuality": "False",
+            "evidence_scope": "Single",
+            "transformation_level": "Paraphrasing"
+         }
+      ]
+   },
+   "6": {
+      "passage": {
+         "passage_length": "medium",
+         "sentence_length": "long",
+         "vocab_level": "B"
+      },
+      "option": [
+         {
+            "factuality": "True",
+            "evidence_scope": "Single",
+            "transformation_level": "Inference"
+         },
+         {
+            "factuality": "False",
+            "evidence_scope": "Single",
+            "transformation_level": "Inference"
+         },
+         {
+            "factuality": "False",
+            "evidence_scope": "Single",
+            "transformation_level": "Paraphrasing"
+         },
+         {
+            "factuality": "False",
+            "evidence_scope": "Single",
+            "transformation_level": "Paraphrasing"
+         }
+      ]
+   },
+   "7": {
+      "passage": {
+         "passage_length": "long",
+         "sentence_length": "long",
+         "vocab_level": "C"
+      },
+      "option": [
+         {
+            "factuality": "True",
+            "evidence_scope": "Single",
+            "transformation_level": "Inference"
+         },
+         {
+            "factuality": "False",
+            "evidence_scope": "Single",
+            "transformation_level": "Inference"
+         },
+         {
+            "factuality": "False",
+            "evidence_scope": "Single",
+            "transformation_level": "Inference"
+         },
+         {
+            "factuality": "False",
+            "evidence_scope": "Single",
+            "transformation_level": "Inference"
+         }
+      ]
+   },
+   "8": {
+      "passage": {
+         "passage_length": "long",
+         "sentence_length": "long",
+         "vocab_level": "C"
+      },
+      "option": [
+         {
+            "factuality": "True",
+            "evidence_scope": "Inter",
+            "transformation_level": "Inference"
+         },
+         {
+            "factuality": "False",
+            "evidence_scope": "Inter",
+            "transformation_level": "Inference"
+         },
+         {
+            "factuality": "False",
+            "evidence_scope": "Inter",
+            "transformation_level": "Inference"
+         },
+         {
+            "factuality": "False",
+            "evidence_scope": "Inter",
+            "transformation_level": "Inference"
+         }
+      ]
+   }
+}
