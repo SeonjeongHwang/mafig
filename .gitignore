@@ -1,0 +1,4 @@
+Dictionary_nltk.json
+codex/
+__pycache__/
+*.py[cod]

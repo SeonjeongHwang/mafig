@@ -1,21 +1,16 @@
 from builtins import print
-import torch, os, json, random, random, time, gc
+import os, json, time
 import numpy as np
-from vllm import LLM
-from transformers import AutoTokenizer
 import argparse
 import copy
 
 from utils.evaluators import check_option_constraints, Lexi_nltk, OptionNeutralityEvaluator, FactualityEvaluator, Propositionalizer, ComplexityEvaluator
+from utils.runtime import MODEL_NICKNAME_TO_NAME, initialize_model as initialize_vllm_model, release_model, set_random_seed
 
 args = None
 used_constraints = ["factuality", "evidence_scope", "transformation_level"]
 args, llm, tokenizer, lex, propositionalizer, neutrality_evaluator, factuality_evaluator, complexity_evaluator = None, None, None, None, None, None, None, None
 current_model_name = None
-NICKNAME2NAME = {"phi4-14B": "microsoft/phi-4",
-                 "mistral-24B": "mistralai/Mistral-Small-24B-Instruct-2501",
-                 "gemma2.5-27B": "google/gemma-2-27b-it",
-                 "qwen3-32B": "Qwen/Qwen3-32B"}
 
 def parse_args():
     parser = argparse.ArgumentParser(description="DCAQG Pipeline Option Generation Arguments")
@@ -84,40 +79,15 @@ def parse_args():
     
     return parser.parse_args()
 
-def set_random_seed(seed):
-    """
-    Set the random seed for reproducibility.
-    """
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-    os.environ['PYTHONHASHSEED'] = str(seed)
-    
 def initialize_model(model_nickname, max_tokens=8000):
-    """
-    Initialize the LLM with the specified model nickname.
-    """
-    model_name = NICKNAME2NAME[model_nickname]
-    print(f"Using model: {model_name}")
-    llm = LLM(model=model_name,
-              seed=args.seed,
-              dtype="auto",
-              trust_remote_code=True,
-              enable_prefix_caching=True,
-              tensor_parallel_size=torch.cuda.device_count(),
-              max_model_len=max_tokens,
-              disable_cascade_attn=True)
-    tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
-    
-    return llm, tokenizer
+    return initialize_vllm_model(model_nickname, args.seed, max_model_len=max_tokens)
 
 def unload_model():
     global llm
-    
-    del llm
-    gc.collect()
-    torch.cuda.empty_cache()
+
+    model = llm
+    llm = None
+    release_model(model)
 
 def pre_evaluate(id_list, passages, options): ## id2factuality, id2tl, id2props = pre_evaluate(id_list, passages, options, factualities)
     global llm, tokenizer, current_model_name
@@ -836,7 +806,7 @@ def main():
     global args, llm, tokenizer, current_model_name, lex, neutrality_evaluator, factuality_evaluator, complexity_evaluator, propositionalizer
     args = parse_args()
     
-    assert args.model_nickname in NICKNAME2NAME, f"Model nickname '{args.model_nickname}' is not recognized."
+    assert args.model_nickname in MODEL_NICKNAME_TO_NAME, f"Model nickname '{args.model_nickname}' is not recognized."
     set_random_seed(args.seed)
     
     lex = Lexi_nltk()

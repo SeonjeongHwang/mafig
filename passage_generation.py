@@ -1,22 +1,16 @@
 from builtins import print
-import torch, os, json, random, random, time
-import numpy as np
-from vllm import LLM
-from transformers import AutoTokenizer
+import os, json, time
 import argparse
 import copy
 
 from utils.evaluators import Lexi_nltk, check_passage_constraints
 from utils.agents import Planner, Reviser, Reworder, Refiner
+from utils.runtime import MODEL_NICKNAME_TO_NAME, initialize_model, set_random_seed
 
 args = None
 llm = None
 tokenizer = None
 lex = None
-NICKNAME2NAME = {"phi4-14B": "microsoft/phi-4",
-                 "mistral-24B": "mistralai/Mistral-Small-24B-Instruct-2501",
-                 "gemma2.5-27B": "google/gemma-2-27b-it",
-                 "qwen3-32B": "Qwen/Qwen3-32B"}
 
 def parse_args():
     parser = argparse.ArgumentParser(description="DCAQG Pipeline Passage Generation Arguments")
@@ -74,33 +68,6 @@ def parse_args():
     parser.add_argument("--refiner_max_tokens", type=int, default=3000, help="Maximum tokens for refiner to generate")
     
     return parser.parse_args()
-
-def set_random_seed(seed):
-    """
-    Set the random seed for reproducibility.
-    """
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-    os.environ['PYTHONHASHSEED'] = str(seed)
-    
-def initialize_model(model_nickname):
-    """
-    Initialize the LLM with the specified model nickname.
-    """
-    model_name = NICKNAME2NAME[model_nickname]
-    print(f"Using model: {model_name}")
-    llm = LLM(model=model_name,
-              seed=args.seed,
-              dtype="auto",
-              trust_remote_code=True,
-              enable_prefix_caching=True,
-              tensor_parallel_size=torch.cuda.device_count(),
-              disable_cascade_attn=True)
-    tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
-    
-    return llm, tokenizer
 
 def write_draft(examples):
     draft_dir = f"{args.output_dir}/{args.model_nickname}-{args.run_name}/draft"
@@ -516,10 +483,10 @@ def main():
     global args, llm, tokenizer, lex
     args = parse_args()
     
-    assert args.model_nickname in NICKNAME2NAME, f"Model nickname '{args.model_nickname}' is not recognized."
+    assert args.model_nickname in MODEL_NICKNAME_TO_NAME, f"Model nickname '{args.model_nickname}' is not recognized."
         
     set_random_seed(args.seed)
-    llm, tokenizer = initialize_model(args.model_nickname)
+    llm, tokenizer = initialize_model(args.model_nickname, args.seed)
     print("LLM and Tokenizer initialized successfully.")
     print(args)
     
