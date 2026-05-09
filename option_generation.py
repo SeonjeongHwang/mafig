@@ -6,6 +6,7 @@ import copy
 from utils.evaluators import check_option_constraints, Lexi_nltk, OptionNeutralityEvaluator, FactualityEvaluator, Propositionalizer, ComplexityEvaluator
 from utils.examples import build_generated_passage_option_examples, build_human_passage_option_examples, normalize_passage_data_list
 from utils.io import read_json, restore_examples_trajectory, write_json, write_marker
+from utils.results import build_option_result, select_one_result_per_source, split_results_by_success
 from utils.runtime import MODEL_NICKNAME_TO_NAME, initialize_model as initialize_vllm_model, release_model, set_random_seed
 
 args = None
@@ -606,24 +607,7 @@ def revise_option(input_examples, start_round=1):
     revision_end_time = time.time()
     print(f"Option revision completed in {(revision_end_time - revision_start_time) / 60:.2f} minutes.") 
         
-    all_results, success_results, fail_results = [], [], []
-    for example in all_examples:
-        last_round = max(example["trajectory"].keys())
-        last_worker = example["trajectory"][last_round]["last_worker"]
-        result = {"id": example["id"],
-                  "source_id": example["source_id"],
-                  "level": example["level"],
-                  "passage": example["input_data"]["passage"],
-                  "constraints": example["constraints"],
-                  "stem": example["trajectory"][last_round][last_worker]["state"]["stem"],
-                  "options": example["trajectory"][last_round][last_worker]["state"]["options"],
-                  "answer": example["trajectory"][last_round][last_worker]["state"]["answer"]}
-        
-        all_results.append(result)
-        if example["is_success"]:
-            success_results.append(result)
-        elif not example["is_terminated"]:
-            fail_results.append(result)
+    all_results, success_results, fail_results = split_results_by_success(all_examples, build_option_result)
         
     write_json(os.path.join(revision_dir, "success_results.json"), success_results)
         
@@ -866,57 +850,10 @@ def main():
     #examples = refinement(examples)
     
     if args.drafter_n > 1:
-        id2result = dict()
-        for example in examples:
-            id = example["id"].split("_sample")[0]
-            id2result[id] = None
-            
-        #### Sampling Successful Examples    
-        for example in examples:
-            id = example["id"].split("_sample")[0]
-            if id2result[id] is not None:
-                continue
-            if example["is_success"] is False:
-                continue
-            
-            draft_id = example["id"]
-            last_round = max(example["trajectory"].keys())
-            last_worker = example["trajectory"][last_round]["last_worker"]
-            final_output = example["trajectory"][last_round][last_worker]["state"]
-            
-            result = {"id": id,
-                      "source_id": example["source_id"],
-                      "level": example["level"],
-                      "passage": example["input_data"]["passage"],
-                      "constraints": example["constraints"],
-                      "stem": final_output["stem"],
-                      "options": final_output["options"],
-                      "answer": final_output["answer"],
-                      "is_success": example["is_success"]}
-            id2result[id] = result
-            
-        #### Sampling Failed Examples
-        for example in examples:
-            id = example["id"].split("_sample")[0]
-            if id2result[id] is not None:
-                continue
-            
-            draft_id = example["id"]
-            last_round = max(example["trajectory"].keys())
-            last_worker = example["trajectory"][last_round]["last_worker"]
-            final_output = example["trajectory"][last_round][last_worker]["state"]
-            
-            result = {"id": id,
-                      "source_id": example["source_id"],
-                      "level": example["level"],
-                      "passage": example["input_data"]["passage"],
-                      "constraints": example["constraints"],
-                      "stem": final_output["stem"],
-                      "options": final_output["options"],
-                      "answer": final_output["answer"],
-                      "is_success": example["is_success"]}
-            id2result[id] = result
-        final_results = list(id2result.values())
+        final_results = select_one_result_per_source([
+            build_option_result(example, include_status=True)
+            for example in examples
+        ])
         final_file_name = f"{args.output_dir}/{args.model_nickname}-{args.run_name}/final_results.json"
         write_json(final_file_name, final_results)
         
