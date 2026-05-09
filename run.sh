@@ -1,5 +1,7 @@
 #!/bin/bash -l
 
+python -m spacy download en
+
 MODEL_NAME=qwen3-32B
 EVAL_MODEL_NAME=qwen3-32B
 SEED=2025
