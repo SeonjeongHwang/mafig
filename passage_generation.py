@@ -5,6 +5,7 @@ import copy
 
 from utils.evaluators import Lexi_nltk, check_passage_constraints
 from utils.agents import Planner, Reviser, Reworder, Refiner
+from utils.examples import build_passage_examples
 from utils.io import read_json, restore_examples_trajectory, write_json, write_marker
 from utils.runtime import MODEL_NICKNAME_TO_NAME, initialize_model, set_random_seed
 
@@ -488,28 +489,9 @@ def main():
         print("No previous file provided. Starting fresh.")
     
     combinations = read_json(args.constraint_path)
-        
-    ## Load examples from the specified data path
-    examples = []
-    for data in read_json(args.data_path):
-        for level, comb in combinations.items():
-            id = f"{data['id']}_level{level}"
-            if id in already_success_ids:
-                print(f"Skipping already successful example ID: {id}")
-                continue
-            
-            example = {
-                "id": id,
-                "source_id": data["id"],
-                "level": level,
-                "input_data": {"source_text": data["document"]},
-                "constraints": comb["passage"],
-                "trajectory": dict(),
-                "planner_history": [],
-                "is_success": False,
-                "is_terminated": False
-            }
-            examples.append(example)
+    examples, skipped_ids = build_passage_examples(read_json(args.data_path), combinations, already_success_ids)
+    for skipped_id in skipped_ids:
+        print(f"Skipping already successful example ID: {skipped_id}")
     print(f"Loaded {len(examples)} examples | Documents from {args.data_path} | Constraints from {args.constraint_path}.")
     
     ### Drafting

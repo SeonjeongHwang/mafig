@@ -1,10 +1,10 @@
 from builtins import print
 import os, time
-import numpy as np
 import argparse
 import copy
 
 from utils.evaluators import check_option_constraints, Lexi_nltk, OptionNeutralityEvaluator, FactualityEvaluator, Propositionalizer, ComplexityEvaluator
+from utils.examples import build_generated_passage_option_examples, build_human_passage_option_examples, normalize_passage_data_list
 from utils.io import read_json, restore_examples_trajectory, write_json, write_marker
 from utils.runtime import MODEL_NICKNAME_TO_NAME, initialize_model as initialize_vllm_model, release_model, set_random_seed
 
@@ -825,38 +825,9 @@ def main():
             if args.previous_success_file is not None:
                 success_ids = [data["id"] for data in read_json(args.previous_success_file)]
             
-            examples = []
-            for data in read_json(args.passage_file):
-                id = data["id"]
-                vocab_level = data["vocab_level"]
-                
-                for level, c in level2cconstraints.items():
-                    example_id = f"{id}_level{level}"
-                    
-                    if example_id in success_ids:
-                        print(f"Skipping already successful example: {example_id}")
-                        continue
-                    
-                    constraints = dict()
-                    constraints["vocab_level"] = vocab_level
-                    
-                    option_constraints = level2cconstraints[level]["option"][:]
-                    np.random.shuffle(option_constraints)
-                    constraints["options"] = dict([(oidx, c) for oidx, c in zip(["A", "B", "C", "D"], option_constraints)])
-                    
-                    example = {
-                        "id": example_id,
-                        "source_id": id,
-                        "level": level,
-                        "input_data": {"passage": data["passage"]}, # "passage_props": id2passage_props[id]},
-                        "constraints": constraints,
-                        "trajectory": dict(),
-                        "planner_history": [],
-                        "success_details": dict([(oidx, False) for oidx in ["A", "B", "C", "D"]]),
-                        "is_success": False,
-                        "is_terminated": False
-                    }
-                    examples.append(example)
+            examples, skipped_ids = build_human_passage_option_examples(read_json(args.passage_file), level2cconstraints, success_ids)
+            for skipped_id in skipped_ids:
+                print(f"Skipping already successful example: {skipped_id}")
             print(f"Loaded {len(examples)} examples | Documents from {args.passage_file} | Constraints from {constraint_path}.")
                 
         else:
@@ -869,45 +840,12 @@ def main():
             if args.previous_success_file is not None:
                 success_ids = [data["id"] for data in read_json(args.previous_success_file)]
             
-            passage_data_list = read_json(args.passage_file)
-            if type(passage_data_list) is dict:
+            passage_data_list, detected_dict = normalize_passage_data_list(read_json(args.passage_file))
+            if detected_dict:
                 print("Detected dictionary format for passage data. Converting to list format.")
-                converted_passage_data_list = []
-                for id, data in passage_data_list.items():
-                    data["id"] = id
-                    data["source_id"] = id.split("_level")[0]
-                    data["level"] = id.split("_level")[-1]
-                    converted_passage_data_list.append(data)
-                passage_data_list = converted_passage_data_list
-                
-            examples = []
-            for data in passage_data_list:
-                id = data["id"]
-                
-                if id in success_ids:
-                    print(f"Skipping already successful example: {id}")
-                    continue
-                
-                level = data["level"]
-                constraints = dict()
-                constraints["vocab_level"] = level2cconstraints[level]["passage"]["vocab_level"]
-                option_constraints = level2cconstraints[level]["option"][:]
-                np.random.shuffle(option_constraints)
-                constraints["options"] = dict([(oidx, c) for oidx, c in zip(["A", "B", "C", "D"], option_constraints)])
-                
-                example = {
-                    "id": id,
-                    "source_id": data["source_id"],
-                    "level": level,
-                    "input_data": {"passage": data["passage"]}, # "passage_props": id2passage_props[id]},
-                    "constraints": constraints,
-                    "trajectory": dict(),
-                    "planner_history": [],
-                    "success_details": dict([(oidx, False) for oidx in ["A", "B", "C", "D"]]),
-                    "is_success": False,
-                    "is_terminated": False
-                }
-                examples.append(example)
+            examples, skipped_ids = build_generated_passage_option_examples(passage_data_list, level2cconstraints, success_ids)
+            for skipped_id in skipped_ids:
+                print(f"Skipping already successful example: {skipped_id}")
             print(f"Loaded {len(examples)} examples | Documents from {args.passage_file} | Constraints from {constraint_path}.")
     
         examples = write_draft(examples)
