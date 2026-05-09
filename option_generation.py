@@ -1,10 +1,11 @@
 from builtins import print
-import os, json, time
+import os, time
 import numpy as np
 import argparse
 import copy
 
 from utils.evaluators import check_option_constraints, Lexi_nltk, OptionNeutralityEvaluator, FactualityEvaluator, Propositionalizer, ComplexityEvaluator
+from utils.io import read_json, restore_examples_trajectory, write_json, write_marker
 from utils.runtime import MODEL_NICKNAME_TO_NAME, initialize_model as initialize_vllm_model, release_model, set_random_seed
 
 args = None
@@ -160,8 +161,7 @@ def write_draft(examples):
             draft_file = os.path.join(draft_dir, "all_results.json")
             assert os.path.exists(draft_file), f"Draft file {draft_file} does not exist."
             
-            with open(draft_file, "r") as f:
-                id2result = json.load(f)
+            id2result = read_json(draft_file)
             print(f"Loaded already drafted options from {draft_dir}.")
         else:
             print(f"No drafted options found at {draft_dir}. Proceeding to draft options.")
@@ -300,15 +300,12 @@ def write_draft(examples):
         success_rate = success_count / len(examples) * 100
         print(f"Draft success rate: {success_rate:.2f}% ({success_count}/{len(examples)})")
         score_file = os.path.join(draft_dir, f"success_rate-{round(success_rate, 2)}")
-        with open(score_file, "w") as f:
-            f.write(f"-")
+        write_marker(score_file)
             
         result_file = os.path.join(draft_dir, "all_results.json")
-        with open(result_file, "w") as f:
-            json.dump(id2result, f, indent=4)
+        write_json(result_file, id2result)
             
-        with open(os.path.join(draft_dir, "args.json"), "w") as f:
-            json.dump(vars(args), f, indent=4)   
+        write_json(os.path.join(draft_dir, "args.json"), vars(args))
     
     drafted_examples = []
     for id, result in id2result.items():
@@ -594,8 +591,7 @@ def revise_option(input_examples, start_round=1):
         print(f"# Success / # Terminated / # Retry Needed : {len(completed_examples)} / {len(terminated_examples)} / {len(examples)} (unique: {len(set(ex['id'].split('_sample')[0] for ex in examples))})")
         
         log_file = os.path.join(revision_dir, "revision_history.json")
-        with open(log_file, "w") as f:
-            json.dump(completed_examples + terminated_examples + examples, f, indent=3)
+        write_json(log_file, completed_examples + terminated_examples + examples, indent=3)
         print(f"Revised passages saved to {log_file}.")
         
     print(f"# Success / # Terminated / # Retry Needed : {len(completed_examples)} / {len(terminated_examples)} / {len(examples)} (unique: {len(set(ex['id'].split('_sample')[0] for ex in examples))})")
@@ -605,8 +601,7 @@ def revise_option(input_examples, start_round=1):
     success_rate = round(len(completed_examples)/len(all_examples)*100, 2)
     print(f"Revision Success Rate: {success_rate:.2f}% ({len(completed_examples)}/{len(set(ex['id'].split('_sample')[0] for ex in all_examples))})")
     score_file = os.path.join(revision_dir, f"success_rate-{round(success_rate, 2)}")
-    with open(score_file, "w") as f:
-        f.write(f"-")
+    write_marker(score_file)
         
     revision_end_time = time.time()
     print(f"Option revision completed in {(revision_end_time - revision_start_time) / 60:.2f} minutes.") 
@@ -630,21 +625,16 @@ def revise_option(input_examples, start_round=1):
         elif not example["is_terminated"]:
             fail_results.append(result)
         
-    with open(os.path.join(revision_dir, "success_results.json"), "w") as f:
-        json.dump(success_results, f, indent=4)
+    write_json(os.path.join(revision_dir, "success_results.json"), success_results)
         
-    with open(os.path.join(revision_dir, "fail_results.json"), "w") as f:
-        json.dump(fail_results, f, indent=4)
+    write_json(os.path.join(revision_dir, "fail_results.json"), fail_results)
         
-    with open(os.path.join(revision_dir, "all_results.json"), "w") as f:
-        json.dump(all_results, f, indent=4)
+    write_json(os.path.join(revision_dir, "all_results.json"), all_results)
         
-    with open(os.path.join(revision_dir, "args.json"), "w") as f:
-        json.dump(vars(args), f, indent=4)
+    write_json(os.path.join(revision_dir, "args.json"), vars(args))
         
     log_file = os.path.join(revision_dir, "revision_history.json")
-    with open(log_file, "w") as f:
-        json.dump(all_examples, f, indent=3)
+    write_json(log_file, all_examples, indent=3)
     print(f"Revised options saved to {log_file}.")
     
     return all_examples
@@ -784,20 +774,16 @@ def refinement(input_examples):
     success_rate = success_count / len(refined_examples) * 100
     print(f"Refinement success rate: {success_rate:.2f}% ({success_count}/{len(refined_examples)})")
     score_file = os.path.join(refinement_dir, f"success_rate-{round(success_rate, 2)}")
-    with open(score_file, "w") as f:
-        f.write(f"-")
+    write_marker(score_file)
         
     result_file = os.path.join(refinement_dir, "all_results.json")
-    with open(result_file, "w") as f:
-        json.dump(all_results, f, indent=4)
+    write_json(result_file, all_results)
     print(f"Refinement results saved to {result_file}.")
     
-    with open(os.path.join(refinement_dir, "args.json"), "w") as f:
-        json.dump(vars(args), f, indent=4)
+    write_json(os.path.join(refinement_dir, "args.json"), vars(args))
         
     log_file = os.path.join(refinement_dir, "revision_history.json")
-    with open(log_file, "w") as f:
-        json.dump(refined_examples, f, indent=3)
+    write_json(log_file, refined_examples, indent=3)
     print(f"Refined passages saved to {log_file}.")
         
     return refined_examples
@@ -824,17 +810,8 @@ def main():
         log_file = os.path.join(revision_dir, "revision_history.json")
         assert os.path.exists(log_file), f"Revision history file {log_file} does not exist."
         
-        saved_examples = json.load(open(log_file))
-        examples = []
-        for example in saved_examples:
-            new_example = dict()
-            for k, v in example.items():
-                if k != "trajectory":
-                    new_example[k] = v
-            new_example["trajectory"] = dict()
-            for round, traj in example["trajectory"].items():
-                new_example["trajectory"][int(round)] = traj
-            examples.append(new_example)
+        saved_examples = read_json(log_file)
+        examples = restore_examples_trajectory(saved_examples)
         
         start_round = max(examples[-1]["trajectory"].keys())
         print(f"Continuing edition from round {start_round}.")
@@ -842,14 +819,14 @@ def main():
     else:
         if args.from_human_passage:
             constraint_path = "data/difficulty_series.option.easy.json"
-            level2cconstraints = json.load(open(constraint_path))
+            level2cconstraints = read_json(constraint_path)
             
             success_ids = []
             if args.previous_success_file is not None:
-                success_ids = [data["id"] for data in json.load(open(args.previous_success_file))]
+                success_ids = [data["id"] for data in read_json(args.previous_success_file)]
             
             examples = []
-            for data in json.load(open(args.passage_file)):
+            for data in read_json(args.passage_file):
                 id = data["id"]
                 vocab_level = data["vocab_level"]
                 
@@ -885,22 +862,23 @@ def main():
         else:
             ## Difficulty Level Constraints
             passage_args_file = "/".join(args.passage_file.split("/")[:-1]) + "/args.json"
-            constraint_path = json.load(open(passage_args_file))["constraint_path"]
-            level2cconstraints = json.load(open(constraint_path))
+            constraint_path = read_json(passage_args_file)["constraint_path"]
+            level2cconstraints = read_json(constraint_path)
             
             success_ids = []
             if args.previous_success_file is not None:
-                success_ids = [data["id"] for data in json.load(open(args.previous_success_file))]
+                success_ids = [data["id"] for data in read_json(args.previous_success_file)]
             
-            passage_data_list = json.load(open(args.passage_file))
+            passage_data_list = read_json(args.passage_file)
             if type(passage_data_list) is dict:
                 print("Detected dictionary format for passage data. Converting to list format.")
-                passage_data_list = []
-                for id, data in json.load(open(args.passage_file)).items():
+                converted_passage_data_list = []
+                for id, data in passage_data_list.items():
                     data["id"] = id
                     data["source_id"] = id.split("_level")[0]
                     data["level"] = id.split("_level")[-1]
-                    passage_data_list.append(data)    
+                    converted_passage_data_list.append(data)
+                passage_data_list = converted_passage_data_list
                 
             examples = []
             for data in passage_data_list:
@@ -941,16 +919,7 @@ def main():
     if args.already_revised:
         print("Skipping revision as 'already_revised' is set to True.")
         revision_file = f"{args.output_dir}/{args.model_nickname}-{args.run_name}/revision-{args.revision_max_round}R/revision_history.json"
-        examples = []
-        for example in json.load(open(revision_file)):
-            new_example = dict()
-            for k, v in example.items():
-                if k != "trajectory":
-                    new_example[k] = v
-            new_example["trajectory"] = dict()
-            for r, traj in example["trajectory"].items():
-                new_example["trajectory"][int(r)] = traj
-            examples.append(new_example)
+        examples = restore_examples_trajectory(read_json(revision_file))
             
         print(f"Loaded {len(examples)} revised examples from {revision_file}.")
     else:
@@ -1011,8 +980,7 @@ def main():
             id2result[id] = result
         final_results = list(id2result.values())
         final_file_name = f"{args.output_dir}/{args.model_nickname}-{args.run_name}/final_results.json"
-        with open(final_file_name, "w") as f:
-            json.dump(final_results, f, indent=4)
+        write_json(final_file_name, final_results)
         
 if __name__ == "__main__":
     main()
