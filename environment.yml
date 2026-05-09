@@ -64,7 +64,6 @@ dependencies:
     - dnspython==2.7.0
     - einops==0.8.1
     - email-validator==2.2.0
-    - en-core-web-sm==3.8.0
     - et-xmlfile==2.0.0
     - evaluate==0.4.3
     - exceptiongroup==1.2.2
@@ -150,8 +149,6 @@ dependencies:
     - opentelemetry-sdk==1.26.0
     - opentelemetry-semantic-conventions==0.47b0
     - opentelemetry-semantic-conventions-ai==0.4.9
-    - outlines==0.1.11
-    - outlines-core==0.2.10
     - packaging==24.2
     - pandas==2.2.3
     - partial-json-parser==0.2.1.1.post5

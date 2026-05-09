@@ -294,6 +294,8 @@ from nltk import pos_tag, word_tokenize
 from nltk.stem import WordNetLemmatizer
 from nltk.corpus import wordnet
 
+nltk.download('averaged_perceptron_tagger_eng')
+
 class Lexi_nltk:
 
     def __init__(self):
