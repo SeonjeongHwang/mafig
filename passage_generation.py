@@ -98,7 +98,6 @@ def write_draft(examples):
         end_time = time.time()
         print(f"Passage drafting completed in {(end_time - start_time) / 60:.2f} minutes.")
         
-        ## Check success rate
         num_error = 0
         id2result = dict()
         for ex_id, outputs in id2output.items():

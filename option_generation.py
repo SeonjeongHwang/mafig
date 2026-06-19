@@ -91,7 +91,7 @@ def unload_model():
     llm = None
     release_model(model)
 
-def pre_evaluate(id_list, passages, options): ## id2factuality, id2tl, id2props = pre_evaluate(id_list, passages, options, factualities)
+def pre_evaluate(id_list, passages, options):
     global llm, tokenizer, current_model_name
     
     FE_model = args.factuality_evaluation_model
@@ -155,7 +155,6 @@ def write_draft(examples):
     draft_dir = f"{args.output_dir}/{args.model_nickname}-{args.run_name}/draft"
     os.makedirs(draft_dir, exist_ok=True)
     
-    ## If already drafted options exist, load them
     if args.already_drafted or args.already_revised:
         print("Drafting options is skipped as 'draft_already_written' is set to True.")
         if os.path.exists(draft_dir):
@@ -219,7 +218,6 @@ def write_draft(examples):
         id2neutrality = neutrality_evaluator.evaluate(llm, tokenizer, id_list, item_passages, option_sets)
         id2factuality, id2es, id2tl, id2props = pre_evaluate(option_id_list, passages, options)
         
-        ## Check success rate
         success_count = 0
         id2result = dict()
         for example in examples:
@@ -347,7 +345,6 @@ def call_reworder(reworder, examples, round):
             "alternative_dict": id2suggestion[id]["output"]
         }
     
-        ## Revise Contents
     print("Revising contents...")
     id2revision = reworder.revise(llm, examples, id2output, round, args.reworder_max_attempts)
     for example in examples:
@@ -598,7 +595,6 @@ def revise_option(input_examples, start_round=1):
     print(f"# Success / # Terminated / # Retry Needed : {len(completed_examples)} / {len(terminated_examples)} / {len(examples)} (unique: {len(set(ex['id'].split('_sample')[0] for ex in examples))})")
     all_examples = completed_examples + terminated_examples + examples
         
-    ## Check success rate
     success_rate = round(len(completed_examples)/len(all_examples)*100, 2)
     print(f"Revision Success Rate: {success_rate:.2f}% ({len(completed_examples)}/{len(set(ex['id'].split('_sample')[0] for ex in all_examples))})")
     score_file = os.path.join(revision_dir, f"success_rate-{round(success_rate, 2)}")
@@ -846,8 +842,6 @@ def main():
         print(f"Loaded {len(examples)} revised examples from {revision_file}.")
     else:
         examples = revise_option(examples, start_round)
-        
-    #examples = refinement(examples)
     
     if args.drafter_n > 1:
         final_results = select_one_result_per_source([
