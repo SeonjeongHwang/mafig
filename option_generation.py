@@ -1,21 +1,18 @@
 from builtins import print
-import torch, os, json, random, random, time, gc
-import numpy as np
-from vllm import LLM
-from transformers import AutoTokenizer
+import os, time
 import argparse
 import copy
 
 from utils.evaluators import check_option_constraints, Lexi_nltk, OptionNeutralityEvaluator, FactualityEvaluator, Propositionalizer, ComplexityEvaluator
+from utils.examples import build_generated_passage_option_examples, build_human_passage_option_examples, normalize_passage_data_list
+from utils.io import read_json, restore_examples_trajectory, write_json, write_marker
+from utils.results import build_option_result, select_one_result_per_source, split_results_by_success
+from utils.runtime import MODEL_NICKNAME_TO_NAME, initialize_model as initialize_vllm_model, release_model, set_random_seed
 
 args = None
 used_constraints = ["factuality", "evidence_scope", "transformation_level"]
 args, llm, tokenizer, lex, propositionalizer, neutrality_evaluator, factuality_evaluator, complexity_evaluator = None, None, None, None, None, None, None, None
 current_model_name = None
-NICKNAME2NAME = {"phi4-14B": "microsoft/phi-4",
-                 "mistral-24B": "mistralai/Mistral-Small-24B-Instruct-2501",
-                 "gemma2.5-27B": "google/gemma-2-27b-it",
-                 "qwen3-32B": "Qwen/Qwen3-32B"}
 
 def parse_args():
     parser = argparse.ArgumentParser(description="DCAQG Pipeline Option Generation Arguments")
@@ -84,42 +81,17 @@ def parse_args():
     
     return parser.parse_args()
 
-def set_random_seed(seed):
-    """
-    Set the random seed for reproducibility.
-    """
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-    os.environ['PYTHONHASHSEED'] = str(seed)
-    
 def initialize_model(model_nickname, max_tokens=8000):
-    """
-    Initialize the LLM with the specified model nickname.
-    """
-    model_name = NICKNAME2NAME[model_nickname]
-    print(f"Using model: {model_name}")
-    llm = LLM(model=model_name,
-              seed=args.seed,
-              dtype="auto",
-              trust_remote_code=True,
-              enable_prefix_caching=True,
-              tensor_parallel_size=torch.cuda.device_count(),
-              max_model_len=max_tokens,
-              disable_cascade_attn=True)
-    tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
-    
-    return llm, tokenizer
+    return initialize_vllm_model(model_nickname, args.seed, max_model_len=max_tokens)
 
 def unload_model():
     global llm
-    
-    del llm
-    gc.collect()
-    torch.cuda.empty_cache()
 
-def pre_evaluate(id_list, passages, options): ## id2factuality, id2tl, id2props = pre_evaluate(id_list, passages, options, factualities)
+    model = llm
+    llm = None
+    release_model(model)
+
+def pre_evaluate(id_list, passages, options):
     global llm, tokenizer, current_model_name
     
     FE_model = args.factuality_evaluation_model
@@ -183,15 +155,13 @@ def write_draft(examples):
     draft_dir = f"{args.output_dir}/{args.model_nickname}-{args.run_name}/draft"
     os.makedirs(draft_dir, exist_ok=True)
     
-    ## If already drafted options exist, load them
     if args.already_drafted or args.already_revised:
         print("Drafting options is skipped as 'draft_already_written' is set to True.")
         if os.path.exists(draft_dir):
             draft_file = os.path.join(draft_dir, "all_results.json")
             assert os.path.exists(draft_file), f"Draft file {draft_file} does not exist."
             
-            with open(draft_file, "r") as f:
-                id2result = json.load(f)
+            id2result = read_json(draft_file)
             print(f"Loaded already drafted options from {draft_dir}.")
         else:
             print(f"No drafted options found at {draft_dir}. Proceeding to draft options.")
@@ -248,7 +218,6 @@ def write_draft(examples):
         id2neutrality = neutrality_evaluator.evaluate(llm, tokenizer, id_list, item_passages, option_sets)
         id2factuality, id2es, id2tl, id2props = pre_evaluate(option_id_list, passages, options)
         
-        ## Check success rate
         success_count = 0
         id2result = dict()
         for example in examples:
@@ -330,15 +299,12 @@ def write_draft(examples):
         success_rate = success_count / len(examples) * 100
         print(f"Draft success rate: {success_rate:.2f}% ({success_count}/{len(examples)})")
         score_file = os.path.join(draft_dir, f"success_rate-{round(success_rate, 2)}")
-        with open(score_file, "w") as f:
-            f.write(f"-")
+        write_marker(score_file)
             
         result_file = os.path.join(draft_dir, "all_results.json")
-        with open(result_file, "w") as f:
-            json.dump(id2result, f, indent=4)
+        write_json(result_file, id2result)
             
-        with open(os.path.join(draft_dir, "args.json"), "w") as f:
-            json.dump(vars(args), f, indent=4)   
+        write_json(os.path.join(draft_dir, "args.json"), vars(args))
     
     drafted_examples = []
     for id, result in id2result.items():
@@ -379,7 +345,6 @@ def call_reworder(reworder, examples, round):
             "alternative_dict": id2suggestion[id]["output"]
         }
     
-        ## Revise Contents
     print("Revising contents...")
     id2revision = reworder.revise(llm, examples, id2output, round, args.reworder_max_attempts)
     for example in examples:
@@ -624,57 +589,32 @@ def revise_option(input_examples, start_round=1):
         print(f"# Success / # Terminated / # Retry Needed : {len(completed_examples)} / {len(terminated_examples)} / {len(examples)} (unique: {len(set(ex['id'].split('_sample')[0] for ex in examples))})")
         
         log_file = os.path.join(revision_dir, "revision_history.json")
-        with open(log_file, "w") as f:
-            json.dump(completed_examples + terminated_examples + examples, f, indent=3)
+        write_json(log_file, completed_examples + terminated_examples + examples, indent=3)
         print(f"Revised passages saved to {log_file}.")
         
     print(f"# Success / # Terminated / # Retry Needed : {len(completed_examples)} / {len(terminated_examples)} / {len(examples)} (unique: {len(set(ex['id'].split('_sample')[0] for ex in examples))})")
     all_examples = completed_examples + terminated_examples + examples
         
-    ## Check success rate
     success_rate = round(len(completed_examples)/len(all_examples)*100, 2)
     print(f"Revision Success Rate: {success_rate:.2f}% ({len(completed_examples)}/{len(set(ex['id'].split('_sample')[0] for ex in all_examples))})")
     score_file = os.path.join(revision_dir, f"success_rate-{round(success_rate, 2)}")
-    with open(score_file, "w") as f:
-        f.write(f"-")
+    write_marker(score_file)
         
     revision_end_time = time.time()
     print(f"Option revision completed in {(revision_end_time - revision_start_time) / 60:.2f} minutes.") 
         
-    all_results, success_results, fail_results = [], [], []
-    for example in all_examples:
-        last_round = max(example["trajectory"].keys())
-        last_worker = example["trajectory"][last_round]["last_worker"]
-        result = {"id": example["id"],
-                  "source_id": example["source_id"],
-                  "level": example["level"],
-                  "passage": example["input_data"]["passage"],
-                  "constraints": example["constraints"],
-                  "stem": example["trajectory"][last_round][last_worker]["state"]["stem"],
-                  "options": example["trajectory"][last_round][last_worker]["state"]["options"],
-                  "answer": example["trajectory"][last_round][last_worker]["state"]["answer"]}
+    all_results, success_results, fail_results = split_results_by_success(all_examples, build_option_result)
         
-        all_results.append(result)
-        if example["is_success"]:
-            success_results.append(result)
-        elif not example["is_terminated"]:
-            fail_results.append(result)
+    write_json(os.path.join(revision_dir, "success_results.json"), success_results)
         
-    with open(os.path.join(revision_dir, "success_results.json"), "w") as f:
-        json.dump(success_results, f, indent=4)
+    write_json(os.path.join(revision_dir, "fail_results.json"), fail_results)
         
-    with open(os.path.join(revision_dir, "fail_results.json"), "w") as f:
-        json.dump(fail_results, f, indent=4)
+    write_json(os.path.join(revision_dir, "all_results.json"), all_results)
         
-    with open(os.path.join(revision_dir, "all_results.json"), "w") as f:
-        json.dump(all_results, f, indent=4)
-        
-    with open(os.path.join(revision_dir, "args.json"), "w") as f:
-        json.dump(vars(args), f, indent=4)
+    write_json(os.path.join(revision_dir, "args.json"), vars(args))
         
     log_file = os.path.join(revision_dir, "revision_history.json")
-    with open(log_file, "w") as f:
-        json.dump(all_examples, f, indent=3)
+    write_json(log_file, all_examples, indent=3)
     print(f"Revised options saved to {log_file}.")
     
     return all_examples
@@ -814,20 +754,16 @@ def refinement(input_examples):
     success_rate = success_count / len(refined_examples) * 100
     print(f"Refinement success rate: {success_rate:.2f}% ({success_count}/{len(refined_examples)})")
     score_file = os.path.join(refinement_dir, f"success_rate-{round(success_rate, 2)}")
-    with open(score_file, "w") as f:
-        f.write(f"-")
+    write_marker(score_file)
         
     result_file = os.path.join(refinement_dir, "all_results.json")
-    with open(result_file, "w") as f:
-        json.dump(all_results, f, indent=4)
+    write_json(result_file, all_results)
     print(f"Refinement results saved to {result_file}.")
     
-    with open(os.path.join(refinement_dir, "args.json"), "w") as f:
-        json.dump(vars(args), f, indent=4)
+    write_json(os.path.join(refinement_dir, "args.json"), vars(args))
         
     log_file = os.path.join(refinement_dir, "revision_history.json")
-    with open(log_file, "w") as f:
-        json.dump(refined_examples, f, indent=3)
+    write_json(log_file, refined_examples, indent=3)
     print(f"Refined passages saved to {log_file}.")
         
     return refined_examples
@@ -836,7 +772,7 @@ def main():
     global args, llm, tokenizer, current_model_name, lex, neutrality_evaluator, factuality_evaluator, complexity_evaluator, propositionalizer
     args = parse_args()
     
-    assert args.model_nickname in NICKNAME2NAME, f"Model nickname '{args.model_nickname}' is not recognized."
+    assert args.model_nickname in MODEL_NICKNAME_TO_NAME, f"Model nickname '{args.model_nickname}' is not recognized."
     set_random_seed(args.seed)
     
     lex = Lexi_nltk()
@@ -854,17 +790,8 @@ def main():
         log_file = os.path.join(revision_dir, "revision_history.json")
         assert os.path.exists(log_file), f"Revision history file {log_file} does not exist."
         
-        saved_examples = json.load(open(log_file))
-        examples = []
-        for example in saved_examples:
-            new_example = dict()
-            for k, v in example.items():
-                if k != "trajectory":
-                    new_example[k] = v
-            new_example["trajectory"] = dict()
-            for round, traj in example["trajectory"].items():
-                new_example["trajectory"][int(round)] = traj
-            examples.append(new_example)
+        saved_examples = read_json(log_file)
+        examples = restore_examples_trajectory(saved_examples)
         
         start_round = max(examples[-1]["trajectory"].keys())
         print(f"Continuing edition from round {start_round}.")
@@ -872,94 +799,33 @@ def main():
     else:
         if args.from_human_passage:
             constraint_path = "data/difficulty_series.option.easy.json"
-            level2cconstraints = json.load(open(constraint_path))
+            level2cconstraints = read_json(constraint_path)
             
             success_ids = []
             if args.previous_success_file is not None:
-                success_ids = [data["id"] for data in json.load(open(args.previous_success_file))]
+                success_ids = [data["id"] for data in read_json(args.previous_success_file)]
             
-            examples = []
-            for data in json.load(open(args.passage_file)):
-                id = data["id"]
-                vocab_level = data["vocab_level"]
-                
-                for level, c in level2cconstraints.items():
-                    example_id = f"{id}_level{level}"
-                    
-                    if example_id in success_ids:
-                        print(f"Skipping already successful example: {example_id}")
-                        continue
-                    
-                    constraints = dict()
-                    constraints["vocab_level"] = vocab_level
-                    
-                    option_constraints = level2cconstraints[level]["option"][:]
-                    np.random.shuffle(option_constraints)
-                    constraints["options"] = dict([(oidx, c) for oidx, c in zip(["A", "B", "C", "D"], option_constraints)])
-                    
-                    example = {
-                        "id": example_id,
-                        "source_id": id,
-                        "level": level,
-                        "input_data": {"passage": data["passage"]}, # "passage_props": id2passage_props[id]},
-                        "constraints": constraints,
-                        "trajectory": dict(),
-                        "planner_history": [],
-                        "success_details": dict([(oidx, False) for oidx in ["A", "B", "C", "D"]]),
-                        "is_success": False,
-                        "is_terminated": False
-                    }
-                    examples.append(example)
+            examples, skipped_ids = build_human_passage_option_examples(read_json(args.passage_file), level2cconstraints, success_ids)
+            for skipped_id in skipped_ids:
+                print(f"Skipping already successful example: {skipped_id}")
             print(f"Loaded {len(examples)} examples | Documents from {args.passage_file} | Constraints from {constraint_path}.")
                 
         else:
             ## Difficulty Level Constraints
             passage_args_file = "/".join(args.passage_file.split("/")[:-1]) + "/args.json"
-            constraint_path = json.load(open(passage_args_file))["constraint_path"]
-            level2cconstraints = json.load(open(constraint_path))
+            constraint_path = read_json(passage_args_file)["constraint_path"]
+            level2cconstraints = read_json(constraint_path)
             
             success_ids = []
             if args.previous_success_file is not None:
-                success_ids = [data["id"] for data in json.load(open(args.previous_success_file))]
+                success_ids = [data["id"] for data in read_json(args.previous_success_file)]
             
-            passage_data_list = json.load(open(args.passage_file))
-            if type(passage_data_list) is dict:
+            passage_data_list, detected_dict = normalize_passage_data_list(read_json(args.passage_file))
+            if detected_dict:
                 print("Detected dictionary format for passage data. Converting to list format.")
-                passage_data_list = []
-                for id, data in json.load(open(args.passage_file)).items():
-                    data["id"] = id
-                    data["source_id"] = id.split("_level")[0]
-                    data["level"] = id.split("_level")[-1]
-                    passage_data_list.append(data)    
-                
-            examples = []
-            for data in passage_data_list:
-                id = data["id"]
-                
-                if id in success_ids:
-                    print(f"Skipping already successful example: {id}")
-                    continue
-                
-                level = data["level"]
-                constraints = dict()
-                constraints["vocab_level"] = level2cconstraints[level]["passage"]["vocab_level"]
-                option_constraints = level2cconstraints[level]["option"][:]
-                np.random.shuffle(option_constraints)
-                constraints["options"] = dict([(oidx, c) for oidx, c in zip(["A", "B", "C", "D"], option_constraints)])
-                
-                example = {
-                    "id": id,
-                    "source_id": data["source_id"],
-                    "level": level,
-                    "input_data": {"passage": data["passage"]}, # "passage_props": id2passage_props[id]},
-                    "constraints": constraints,
-                    "trajectory": dict(),
-                    "planner_history": [],
-                    "success_details": dict([(oidx, False) for oidx in ["A", "B", "C", "D"]]),
-                    "is_success": False,
-                    "is_terminated": False
-                }
-                examples.append(example)
+            examples, skipped_ids = build_generated_passage_option_examples(passage_data_list, level2cconstraints, success_ids)
+            for skipped_id in skipped_ids:
+                print(f"Skipping already successful example: {skipped_id}")
             print(f"Loaded {len(examples)} examples | Documents from {args.passage_file} | Constraints from {constraint_path}.")
     
         examples = write_draft(examples)
@@ -971,78 +837,19 @@ def main():
     if args.already_revised:
         print("Skipping revision as 'already_revised' is set to True.")
         revision_file = f"{args.output_dir}/{args.model_nickname}-{args.run_name}/revision-{args.revision_max_round}R/revision_history.json"
-        examples = []
-        for example in json.load(open(revision_file)):
-            new_example = dict()
-            for k, v in example.items():
-                if k != "trajectory":
-                    new_example[k] = v
-            new_example["trajectory"] = dict()
-            for r, traj in example["trajectory"].items():
-                new_example["trajectory"][int(r)] = traj
-            examples.append(new_example)
+        examples = restore_examples_trajectory(read_json(revision_file))
             
         print(f"Loaded {len(examples)} revised examples from {revision_file}.")
     else:
         examples = revise_option(examples, start_round)
-        
-    #examples = refinement(examples)
     
     if args.drafter_n > 1:
-        id2result = dict()
-        for example in examples:
-            id = example["id"].split("_sample")[0]
-            id2result[id] = None
-            
-        #### Sampling Successful Examples    
-        for example in examples:
-            id = example["id"].split("_sample")[0]
-            if id2result[id] is not None:
-                continue
-            if example["is_success"] is False:
-                continue
-            
-            draft_id = example["id"]
-            last_round = max(example["trajectory"].keys())
-            last_worker = example["trajectory"][last_round]["last_worker"]
-            final_output = example["trajectory"][last_round][last_worker]["state"]
-            
-            result = {"id": id,
-                      "source_id": example["source_id"],
-                      "level": example["level"],
-                      "passage": example["input_data"]["passage"],
-                      "constraints": example["constraints"],
-                      "stem": final_output["stem"],
-                      "options": final_output["options"],
-                      "answer": final_output["answer"],
-                      "is_success": example["is_success"]}
-            id2result[id] = result
-            
-        #### Sampling Failed Examples
-        for example in examples:
-            id = example["id"].split("_sample")[0]
-            if id2result[id] is not None:
-                continue
-            
-            draft_id = example["id"]
-            last_round = max(example["trajectory"].keys())
-            last_worker = example["trajectory"][last_round]["last_worker"]
-            final_output = example["trajectory"][last_round][last_worker]["state"]
-            
-            result = {"id": id,
-                      "source_id": example["source_id"],
-                      "level": example["level"],
-                      "passage": example["input_data"]["passage"],
-                      "constraints": example["constraints"],
-                      "stem": final_output["stem"],
-                      "options": final_output["options"],
-                      "answer": final_output["answer"],
-                      "is_success": example["is_success"]}
-            id2result[id] = result
-        final_results = list(id2result.values())
+        final_results = select_one_result_per_source([
+            build_option_result(example, include_status=True)
+            for example in examples
+        ])
         final_file_name = f"{args.output_dir}/{args.model_nickname}-{args.run_name}/final_results.json"
-        with open(final_file_name, "w") as f:
-            json.dump(final_results, f, indent=4)
+        write_json(final_file_name, final_results)
         
 if __name__ == "__main__":
     main()
