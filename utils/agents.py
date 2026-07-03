@@ -2,7 +2,7 @@ import json, re, copy
 from vllm import SamplingParams
 import nltk, torch
 
-LOG_ON = [] #["planner", "reviser", "drafter", "fact_selector", "reworder", "refiner"]
+LOG_ON = [] #["planner", "editor", "drafter", "fact_selector", "reworder", "refiner"]
 
 def extract_json(response):
     match = re.search(r"```json\s*({.*?})\s*```", response, re.DOTALL)
@@ -457,7 +457,7 @@ class Planner:
 
         return id2output
     
-class Reviser:
+class Editor:
     """
         Input: source_text, current_state, constraints, report
         Output: Thought_i & Action_i
@@ -480,21 +480,21 @@ class Reviser:
         self.target = target
         if target == "passage":
             if self.off_planner_instruction:
-                self.prompt = json.load(open("prompts.json"))["passage_generation"]["reviser_wo_planner_instruction"]
+                self.prompt = json.load(open("prompts.json"))["passage_generation"]["editor_wo_planner_instruction"]
             else:
-                self.prompt = json.load(open("prompts.json"))["passage_generation"]["reviser"]
+                self.prompt = json.load(open("prompts.json"))["passage_generation"]["editor"]
         elif target == "option":
             if self.use_exemplars:
                 if self.off_planner_instruction:
-                    self.prompt_true = json.load(open("prompts.json"))["option_generation"]["reviser_w_ex_wo_planner_instruction"]
+                    self.prompt_true = json.load(open("prompts.json"))["option_generation"]["editor_w_ex_wo_planner_instruction"]
                 else:
-                    self.prompt_true = json.load(open("prompts.json"))["option_generation"]["reviser_w_ex"]
+                    self.prompt_true = json.load(open("prompts.json"))["option_generation"]["editor_w_ex"]
                 self.exemplar_dict = json.load(open("data/exemplars/exemplar_thoughts.json"))
             else:
                 if self.off_planner_instruction:
-                    self.prompt_true = json.load(open("prompts.json"))["option_generation"]["reviser_wo_planner_instruction"]
+                    self.prompt_true = json.load(open("prompts.json"))["option_generation"]["editor_wo_planner_instruction"]
                 else:
-                    self.prompt_true = json.load(open("prompts.json"))["option_generation"]["reviser"]
+                    self.prompt_true = json.load(open("prompts.json"))["option_generation"]["editor"]
         else:
             raise ValueError("Target must be either 'passage' or 'option'.")
 
@@ -532,8 +532,8 @@ class Reviser:
                 input_prompt = input_prompt.replace("{ option_" + oidx + " }", option)
             input_prompt = input_prompt.replace("{ answer }", current_state["answer"])
             
-        if "reviser" in LOG_ON or "all" in LOG_ON:
-            print("[Input Prompt-Reviser]")
+        if "editor" in LOG_ON or "all" in LOG_ON:
+            print("[Input Prompt-Editor]")
             print(input_prompt)
             print("---")
             
@@ -543,7 +543,7 @@ class Reviser:
     def call(self, llm, input_examples, revision_round, max_attempt=1):
         examples = input_examples[:]
         
-        print("### Reviser ###")
+        print("### Editor ###")
         id2output = dict([(example["id"], None) for example in examples])
 
         for t in range(max_attempt):
@@ -597,8 +597,8 @@ class Reviser:
                 if res.outputs and res.outputs[0].text:
                     r = res.outputs[0].text.strip()
 
-                    if "reviser" in LOG_ON or "all" in LOG_ON:
-                        print("[Reviser Response]", id)
+                    if "editor" in LOG_ON or "all" in LOG_ON:
+                        print("[Editor Response]", id)
                         print(r)
                         print("===")
                     

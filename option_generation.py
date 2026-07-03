@@ -50,12 +50,12 @@ def parse_args():
     parser.add_argument("--off_planner_instruction", action='store_true', help="If true, turn off planner instructions in agents")
     parser.add_argument("--off_reworder_message", action='store_true', help="If true, turn off reworder messages in agents")
     
-    parser.add_argument("--reviser_top_k", type=int, default=20, help="Top-k sampling for reviser")
-    parser.add_argument("--reviser_top_p", type=float, default=0.8, help="Top-p sampling for reviser")
-    parser.add_argument("--reviser_temperature", type=float, default=0.7, help="Temperature for reviser")
-    parser.add_argument("--reviser_max_attempts", type=int, default=5, help="Maximum attempts for reviser to generate valid output")
-    parser.add_argument("--reviser_max_tokens", type=int, default=3000, help="Maximum tokens for reviser to generate")
-    parser.add_argument("--reviser_use_exemplars", action='store_true', help="If true, use exemplars in revising")
+    parser.add_argument("--editor_top_k", type=int, default=20, help="Top-k sampling for editor")
+    parser.add_argument("--editor_top_p", type=float, default=0.8, help="Top-p sampling for editor")
+    parser.add_argument("--editor_temperature", type=float, default=0.7, help="Temperature for editor")
+    parser.add_argument("--editor_max_attempts", type=int, default=5, help="Maximum attempts for editor to generate valid output")
+    parser.add_argument("--editor_max_tokens", type=int, default=3000, help="Maximum tokens for editor to generate")
+    parser.add_argument("--editor_use_exemplars", action='store_true', help="If true, use exemplars in editing")
     
     parser.add_argument("--reword_max_round", type=int, default=10)
     parser.add_argument("--reworder_top_k", type=int, default=20, help="Top-k sampling for reworder")
@@ -357,7 +357,7 @@ def call_reworder(reworder, examples, round):
         
 def revise_option(input_examples, start_round=1):
     global llm, tokenizer, current_model_name
-    from utils.agents import Planner, Reviser, Reworder
+    from utils.agents import Planner, Editor, Reworder
     
     revision_start_time = time.time()
     
@@ -377,7 +377,7 @@ def revise_option(input_examples, start_round=1):
                 f"[Trial {round}]\n Planner decided to call {'Editor' if output['action']=='Call_Editor' else 'Reworder'} for option {output['target']}:\n{target_option}\nMessage: {output['message']}\n"
             )
         
-        if worker in ["reviser", "reworder"]:
+        if worker in ["editor", "reworder"]:
             example["trajectory"][round]["last_worker"] = worker
             
             passage = example["input_data"]["passage"]
@@ -421,8 +421,8 @@ def revise_option(input_examples, start_round=1):
             if worker == "reworder":
                 report["reworder_advice"] = "[Reworder's Advice]\n" + output["message"]
                 
-            if worker == "reviser":
-                example["trajectory"][round]["reviser"] = {
+            if worker == "editor":
+                example["trajectory"][round]["editor"] = {
                     "response": output["response"],
                     "state": new_state,
                     "observed_constraints": observed_constraints,
@@ -474,7 +474,7 @@ def revise_option(input_examples, start_round=1):
         print("LLM and Tokenizer for Revision successfully.")
         
     planner = Planner(args.model_nickname, tokenizer, "option", args.seed, args.planner_top_k, args.planner_top_p, args.planner_temperature, args.planner_max_tokens, args=args)
-    reviser = Reviser(args.model_nickname, tokenizer, "option", args.seed, args.reviser_top_k, args.reviser_top_p, args.reviser_temperature, args.reviser_max_tokens, args.reviser_use_exemplars, args=args)
+    editor = Editor(args.model_nickname, tokenizer, "option", args.seed, args.editor_top_k, args.editor_top_p, args.editor_temperature, args.editor_max_tokens, args.editor_use_exemplars, args=args)
     reworder = Reworder(args.model_nickname, tokenizer, lex, "option", args.seed, args.reworder_top_k, args.reworder_top_p, args.reworder_temperature, args.reworder_max_tokens, args=args)
     
     for r in range(start_round, args.revision_max_round+1):
@@ -493,7 +493,7 @@ def revise_option(input_examples, start_round=1):
         
         planner_outputs = planner.call(llm, examples, r, args.planner_max_attempts)
         
-        reviser_loads = []
+        editor_loads = []
         reworder_loads = []
         for example in examples:
             id = example["id"]
@@ -501,28 +501,28 @@ def revise_option(input_examples, start_round=1):
             example = update_trajectory(example, r, "planner", planner_output)
             
             if planner_output["action"] == "Call_Editor":
-                reviser_loads.append(example)
+                editor_loads.append(example)
             elif planner_output["action"] == "Call_Reworder":
                 reworder_loads.append(example)
         
-        if len(reviser_loads)+len(reworder_loads) == 0:
+        if len(editor_loads)+len(reworder_loads) == 0:
             print("All examples are successfully revised. Exiting revision loop.")
             examples = []
             break
         
         ### Call Agents
-        reviser_outputs, reworder_outputs = dict(), dict()
-        if reviser_loads:
-            reviser_outputs = reviser.call(llm, reviser_loads, r, args.reviser_max_attempts) ## str
+        editor_outputs, reworder_outputs = dict(), dict()
+        if editor_loads:
+            editor_outputs = editor.call(llm, editor_loads, r, args.editor_max_attempts) ## str
         if reworder_loads:
             reworder_outputs = call_reworder(reworder, reworder_loads, r) ## str
             
         id_list, item_passages, option_sets = [], [], []
         option_id_list, passages, options = [], [], []
-        for example in reviser_loads + reworder_loads:
+        for example in editor_loads + reworder_loads:
             example_id = example["id"]
-            if example_id in reviser_outputs:
-                new_option = reviser_outputs[example_id]["content"]
+            if example_id in editor_outputs:
+                new_option = editor_outputs[example_id]["content"]
             else:
                 new_option = reworder_outputs[example_id]["content"]
             
@@ -554,10 +554,10 @@ def revise_option(input_examples, start_round=1):
         
         remain_examples = []
         ### Update Trajectory
-        for example in reviser_loads:
+        for example in editor_loads:
             id = example["id"]
-            reviser_output = reviser_outputs[id]
-            example = update_trajectory(example, r, "reviser", reviser_output, id2neutrality, id2factuality, id2props, id2es, id2tl)
+            editor_output = editor_outputs[id]
+            example = update_trajectory(example, r, "editor", editor_output, id2neutrality, id2factuality, id2props, id2es, id2tl)
             if example["is_success"]:
                 completed_examples.append(example)
                 id_prefix = example["id"].split("_sample")[0]

@@ -28,7 +28,7 @@ VLLM_CONFIGURE_LOGGING=0 python option_generation.py \
                                 --revision_max_round 100 \
                                 --model_nickname $MODEL_NAME \
                                 --drafter_use_exemplars \
-                                --reviser_use_exemplars \
+                                --editor_use_exemplars \
                                 --neutrality_evaluation_model $EVAL_MODEL_NAME \
                                 --factuality_evaluation_model $EVAL_MODEL_NAME \
                                 --complexity_evaluation_model $EVAL_MODEL_NAME \
